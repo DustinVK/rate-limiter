@@ -25,17 +25,19 @@ public class RateLimitWebConfig implements WebMvcConfigurer {
     private final RateLimitPolicy policy;
     private final TokenBucketLimiter limiter;
     private final JsonMapper json;
+    private final NanoClock clock;
 
-    public RateLimitWebConfig(RateLimitPolicy policy, TokenBucketLimiter limiter, JsonMapper json) {
+    public RateLimitWebConfig(RateLimitPolicy policy, TokenBucketLimiter limiter, JsonMapper json, NanoClock clock) {
         this.policy = policy;
         this.limiter = limiter;
         this.json = json;
+        this.clock = clock;
     }
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(new ApiKeyInterceptor(policy, json)).excludePathPatterns(EXCLUDED).order(0);
-        registry.addInterceptor(new RateLimitInterceptor(policy, limiter, json)).excludePathPatterns(EXCLUDED).order(1);
+        registry.addInterceptor(new RateLimitInterceptor(policy, limiter, json, clock)).excludePathPatterns(EXCLUDED).order(1);
     }
 
     @Configuration

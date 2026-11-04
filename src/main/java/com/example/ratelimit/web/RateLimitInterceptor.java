@@ -3,6 +3,7 @@ package com.example.ratelimit.web;
 import com.example.ratelimit.BucketSpec;
 import com.example.ratelimit.Decision;
 import com.example.ratelimit.Decision.BucketResult;
+import com.example.ratelimit.NanoClock;
 import com.example.ratelimit.RateLimitPolicy;
 import com.example.ratelimit.RateLimitPolicy.OrgLimits;
 import com.example.ratelimit.TokenBucketLimiter;
@@ -35,14 +36,24 @@ public class RateLimitInterceptor implements HandlerInterceptor {
 
     private static final Logger log = LoggerFactory.getLogger(RateLimitInterceptor.class);
 
+    /** limiter_full is logged at most this often; the rest are counted. */
+    static final long LIMITER_FULL_LOG_INTERVAL_NANOS = 5_000_000_000L; // 5 s
+
     private final RateLimitPolicy policy;
     private final TokenBucketLimiter limiter;
     private final JsonMapper json;
+    private final NanoClock clock;
 
-    public RateLimitInterceptor(RateLimitPolicy policy, TokenBucketLimiter limiter, JsonMapper json) {
+    private final Object limiterFullLock = new Object();
+    private boolean limiterFullLogged;
+    private long limiterFullLoggedAt;
+    private long limiterFullSuppressed;
+
+    public RateLimitInterceptor(RateLimitPolicy policy, TokenBucketLimiter limiter, JsonMapper json, NanoClock clock) {
         this.policy = policy;
         this.limiter = limiter;
         this.json = json;
+        this.clock = clock;
     }
 
     @Override
@@ -66,8 +77,7 @@ public class RateLimitInterceptor implements HandlerInterceptor {
             // must not turn into an outage for new customers. Buckets that exist
             // were still enforced, so an org with an empty total is still
             // rejected. This ERROR line is what pages someone.
-            String requestId = requestId(request);
-            log.error("limiter_full org={} method={} route={} request_id={}", org, method, route, requestId);
+            logLimiterFull(org, method, route, request);
         }
 
         if (decision.allowed()) {
@@ -102,6 +112,28 @@ public class RateLimitInterceptor implements HandlerInterceptor {
         body.put("request_id", requestId);
         response.setHeader("RateLimit", rateLimitHeader(binding.spec().name(), 0, retryAfter));
         return reject(response, 429, retryAfter, body);
+    }
+
+    /**
+     * During a flood of new keys this would otherwise be thousands of ERROR
+     * lines a second, and a page per line. Logs one line per interval, carrying
+     * how many were skipped since the previous line.
+     */
+    private void logLimiterFull(String org, String method, String route, HttpServletRequest request) {
+        long now = clock.nanoTime();
+        long suppressed;
+        synchronized (limiterFullLock) {
+            if (limiterFullLogged && now - limiterFullLoggedAt < LIMITER_FULL_LOG_INTERVAL_NANOS) {
+                limiterFullSuppressed++;
+                return;
+            }
+            suppressed = limiterFullSuppressed;
+            limiterFullSuppressed = 0;
+            limiterFullLoggedAt = now;
+            limiterFullLogged = true;
+        }
+        log.error("limiter_full org={} method={} route={} request_id={} suppressed_since_last={}",
+                org, method, route, requestId(request), suppressed);
     }
 
     private boolean reject(HttpServletResponse response, int status, long retryAfter, Map<String, Object> body) throws Exception {

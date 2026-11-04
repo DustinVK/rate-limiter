@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.example.ratelimit.FakeClock;
+import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,6 +39,9 @@ class LimiterFullTest {
     @Autowired
     MockMvc mvc;
 
+    @Autowired
+    FakeClock clock;
+
     @Test
     void newOrgIsLetThroughAndLoggedWhenTheCapIsFull(CapturedOutput output) throws Exception {
         // globex fills the cap: one request creates org-total + GET /items.
@@ -49,12 +53,34 @@ class LimiterFullTest {
             mvc.perform(get("/items").header("X-Api-Key", "key-acme-1")).andExpect(status().isOk());
         }
         assertThat(output).contains("limiter_full org=acme method=GET route=/items request_id=");
+        // One ERROR line for 200 requests, not 200 lines (and 200 pages).
+        assertThat(output.toString().split("limiter_full", -1)).hasSize(2);
 
         // globex is still tracked and still limited (standard read burst is 5).
         for (int i = 0; i < 4; i++) {
             mvc.perform(get("/items").header("X-Api-Key", "key-globex")).andExpect(status().isOk());
         }
         mvc.perform(get("/items").header("X-Api-Key", "key-globex")).andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    void limiterFullReportsHowManyLinesItSkipped(CapturedOutput output) throws Exception {
+        // globex fills the cap and drains its total (burst 10) so that 5 s of
+        // refill can't make it full: a full bucket would be swept, freeing room.
+        for (int i = 0; i < 5; i++) {
+            mvc.perform(get("/items").header("X-Api-Key", "key-globex")).andExpect(status().isOk());
+        }
+        for (int i = 0; i < 5; i++) {
+            mvc.perform(get("/no-such-route").header("X-Api-Key", "key-globex")).andExpect(status().isNotFound());
+        }
+        for (int i = 0; i < 50; i++) {
+            mvc.perform(get("/items").header("X-Api-Key", "key-acme-1")).andExpect(status().isOk());
+        }
+
+        // After the interval, the next line reports how many were skipped.
+        clock.advance(Duration.ofSeconds(5));
+        mvc.perform(get("/items").header("X-Api-Key", "key-acme-1")).andExpect(status().isOk());
+        assertThat(output).contains("suppressed_since_last=0").contains("suppressed_since_last=49");
     }
 
     @Test
