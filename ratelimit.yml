@@ -9,10 +9,12 @@ ratelimit:
   # Turn a new or changed limit on in shadow mode first and watch the logs.
   enforce: true
 
-  # Hard cap on buckets held in memory. At the cap, buckets that have fully
-  # refilled are dropped (free); depleted ones are never dropped. If no room
-  # can be made, requests that need a NEW bucket get 503 (see README).
-  max-buckets: 10000
+  # Hard cap on buckets held in memory, about 160 bytes each (measured), so
+  # 100k is roughly 16 MB. Live buckets = active orgs x endpoints each touched
+  # in the last refill period. At the cap, fully refilled buckets are dropped
+  # (free); depleted ones never are. If no room can be made, requests that need
+  # a NEW bucket go through unlimited and a limiter_full ERROR is logged.
+  max-buckets: 100000
 
   default-tier: standard
 

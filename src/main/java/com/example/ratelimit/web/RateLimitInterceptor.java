@@ -58,15 +58,12 @@ public class RateLimitInterceptor implements HandlerInterceptor {
         Decision decision = limiter.tryAcquire(specs);
 
         if (decision.outcome() == Decision.Outcome.LIMITER_FULL) {
-            // Fail closed for NEW buckets only; orgs already tracked keep working.
-            log.error("limiter_full org={} method={} route={} enforce={}", org, method, route, policy.enforcing());
-            if (!policy.enforcing()) {
-                return true;
-            }
-            return reject(response, 503, 1, Map.of(
-                    "error", "limiter_capacity_exhausted",
-                    "message", "The rate limiter is at its memory cap. Retry shortly.",
-                    "request_id", requestId(request)));
+            // Fail open: a full limiter must not turn into an outage for new
+            // customers. The request goes through unlimited and untracked, and
+            // this ERROR line is what pages someone. Orgs already tracked are
+            // still limited, and depleted buckets are never evicted.
+            log.error("limiter_full org={} method={} route={}", org, method, route);
+            return true;
         }
 
         if (decision.allowed()) {

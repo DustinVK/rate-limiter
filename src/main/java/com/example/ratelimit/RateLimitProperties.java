@@ -21,7 +21,7 @@ import org.springframework.validation.annotation.Validated;
 @ConfigurationProperties("ratelimit")
 public record RateLimitProperties(
         @DefaultValue("true") boolean enforce,
-        @DefaultValue("10000") @Positive int maxBuckets,
+        @DefaultValue("100000") @Positive int maxBuckets,
         @NotBlank String defaultTier,
         @NotEmpty Map<String, @Valid TierLimits> tiers,
         Map<String, @Valid OrgSettings> orgs,

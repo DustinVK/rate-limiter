@@ -61,8 +61,9 @@ class FailureModesTest {
         List<BucketSpec> noisy = List.of(new BucketSpec("org:0", "org-total", limit));
         List<BucketSpec> newcomer = List.of(new BucketSpec("org:new", "org-total", limit));
 
-        // At the cap with every bucket depleted: the new org is refused (503),
-        // rather than evicting a depleted bucket and handing that org a reset.
+        // At the cap with every bucket depleted: the new org can't be tracked
+        // (the middleware lets it through and logs limiter_full), rather than
+        // evicting a depleted bucket and handing that org a reset.
         assertThat(limiter.tryAcquire(newcomer).outcome()).isEqualTo(Decision.Outcome.LIMITER_FULL);
         assertThat(limiter.tryAcquire(noisy).outcome()).as("still limited, not reset")
                 .isEqualTo(Decision.Outcome.RATE_LIMITED);
@@ -75,18 +76,19 @@ class FailureModesTest {
     }
 
     @Test
-    void KNOWN_LIMITATION_aKeyFloodFillsTheCapAndLocksOutNewOrgs() {
+    void KNOWN_LIMITATION_aKeyFloodFillsTheCapAndNewKeysGoUntracked() {
         TokenBucketLimiter limiter = new TokenBucketLimiter(clock, 1_000);
         Limit limit = new Limit(60, 10);
-        long refused = IntStream.range(0, 100_000)
+        long untracked = IntStream.range(0, 100_000)
                 .mapToObj(i -> limiter.tryAcquire(List.of(new BucketSpec("anon:" + i, "anon", limit))))
                 .filter(d -> d.outcome() == Decision.Outcome.LIMITER_FULL)
                 .count();
         // Memory is bounded...
         assertThat(limiter.size()).isEqualTo(1_000);
-        // ...but the price is that new keys are refused until buckets refill.
+        // ...but new keys can't be tracked until buckets refill, so the
+        // middleware lets them through unlimited (and logs limiter_full).
         // This is why keys come from authenticated orgs and route templates,
         // never from raw paths or client-chosen IDs.
-        assertThat(refused).isEqualTo(99_000);
+        assertThat(untracked).isEqualTo(99_000);
     }
 }
