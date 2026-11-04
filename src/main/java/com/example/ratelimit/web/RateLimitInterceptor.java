@@ -7,6 +7,7 @@ import com.example.ratelimit.NanoClock;
 import com.example.ratelimit.RateLimitPolicy;
 import com.example.ratelimit.RateLimitPolicy.OrgLimits;
 import com.example.ratelimit.TokenBucketLimiter;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.util.LinkedHashMap;
@@ -58,8 +59,8 @@ public class RateLimitInterceptor implements HandlerInterceptor {
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
-        if (CorsUtils.isPreFlightRequest(request)) {
-            return true; // no org to charge; see ApiKeyInterceptor
+        if (CorsUtils.isPreFlightRequest(request) || request.getDispatcherType() != DispatcherType.REQUEST) {
+            return true; // see ApiKeyInterceptor
         }
         String org = (String) request.getAttribute(ApiKeyInterceptor.ORG_ATTRIBUTE);
         String method = request.getMethod();

@@ -1,6 +1,7 @@
 package com.example.ratelimit.web;
 
 import com.example.ratelimit.RateLimitPolicy;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.util.Map;
@@ -35,7 +36,9 @@ public class ApiKeyInterceptor implements HandlerInterceptor {
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
         // Browsers send CORS preflights without credentials, so they can never
         // carry the key. Spring answers them itself; no controller runs.
-        if (CorsUtils.isPreFlightRequest(request)) {
+        // Async handlers are dispatched again when they complete; check only the
+        // original dispatch, or the request is charged twice.
+        if (CorsUtils.isPreFlightRequest(request) || request.getDispatcherType() != DispatcherType.REQUEST) {
             return true;
         }
         Optional<String> org = policy.orgForApiKey(request.getHeader(API_KEY_HEADER));
