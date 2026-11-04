@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.example.ratelimit.FakeClock;
+import com.example.ratelimit.FakeClockConfig;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -13,34 +14,37 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
-import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Primary;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.web.servlet.MockMvc;
 
 /** A full limiter must not become an outage for orgs it can't track. */
 @SpringBootTest(properties = {"RATELIMIT_FILE=classpath:ratelimit-test.yml", "ratelimit.max-buckets=2"})
 @AutoConfigureMockMvc
+@Import(FakeClockConfig.class)
 @ExtendWith(OutputCaptureExtension.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 class LimiterFullTest {
-
-    @TestConfiguration
-    static class Clock {
-        @Bean
-        @Primary
-        FakeClock fakeClock() {
-            return new FakeClock(); // frozen, so globex's buckets never refill and get swept
-        }
-    }
 
     @Autowired
     MockMvc mvc;
 
     @Autowired
     FakeClock clock;
+
+    /**
+     * globex fills the cap (max-buckets=2: org-total + GET /items) and empties its
+     * total (burst 10): 5 reads empty GET /items, 5 unmatched paths hit only the total.
+     */
+    private void exhaustGlobexTotal() throws Exception {
+        for (int i = 0; i < 5; i++) {
+            mvc.perform(get("/items").header("X-Api-Key", "key-globex")).andExpect(status().isOk());
+        }
+        for (int i = 0; i < 5; i++) {
+            mvc.perform(get("/no-such-route").header("X-Api-Key", "key-globex")).andExpect(status().isNotFound());
+        }
+    }
 
     @Test
     void newOrgIsLetThroughAndLoggedWhenTheCapIsFull(CapturedOutput output) throws Exception {
@@ -65,16 +69,10 @@ class LimiterFullTest {
 
     @Test
     void limiterFullReportsHowManyLinesItSkipped(CapturedOutput output) throws Exception {
-        // globex fills the cap and drains its total (burst 10), so 5 s of refill
-        // can't make the total full and it is never swept. Its GET /items bucket
-        // does refill and is swept, freeing one slot: acme's total takes it after
-        // the advance, and acme's endpoint bucket still goes untracked.
-        for (int i = 0; i < 5; i++) {
-            mvc.perform(get("/items").header("X-Api-Key", "key-globex")).andExpect(status().isOk());
-        }
-        for (int i = 0; i < 5; i++) {
-            mvc.perform(get("/no-such-route").header("X-Api-Key", "key-globex")).andExpect(status().isNotFound());
-        }
+        // globex's total can't refill fully in 5 s, so it is never swept. Its
+        // GET /items bucket does refill and is swept, freeing one slot: after the
+        // advance acme's total takes it, and acme's endpoint still goes untracked.
+        exhaustGlobexTotal();
         for (int i = 0; i < 50; i++) {
             mvc.perform(get("/items").header("X-Api-Key", "key-acme-1")).andExpect(status().isOk());
         }
@@ -87,14 +85,7 @@ class LimiterFullTest {
 
     @Test
     void aLimitedOrgCannotSlipThroughViaAnEndpointWithNoBucket() throws Exception {
-        // globex fills the cap (org-total + GET /items), then drains its total
-        // (burst 10): 5 reads empty GET /items, 5 unmatched paths hit only the total.
-        for (int i = 0; i < 5; i++) {
-            mvc.perform(get("/items").header("X-Api-Key", "key-globex")).andExpect(status().isOk());
-        }
-        for (int i = 0; i < 5; i++) {
-            mvc.perform(get("/no-such-route").header("X-Api-Key", "key-globex")).andExpect(status().isNotFound());
-        }
+        exhaustGlobexTotal();
 
         // GET /items/{id} has no bucket and there is no room for one, but the
         // org total exists and is empty, so the request is still rejected.
