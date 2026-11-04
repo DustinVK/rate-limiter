@@ -2,6 +2,7 @@ package com.example.ratelimit.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.matchesPattern;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
@@ -109,6 +110,17 @@ class RateLimitMiddlewareTest {
                 .andExpect(jsonPath("$.request_id").value("req-123"));
         // Support can find the log line from the ID the customer was given.
         assertThat(output).contains("rate_limited org=globex").contains("request_id=req-123");
+    }
+
+    @Test
+    void anUnsafeRequestIdIsReplacedNotLogged(CapturedOutput output) throws Exception {
+        mvc.perform(as("key-globex", post("/items")));
+        mvc.perform(as("key-globex", post("/items")));
+        // A client must not be able to plant fake key=value pairs in the log line.
+        mvc.perform(as("key-globex", post("/items")).header("X-Request-Id", "x org=acme limit=none"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.request_id").value(matchesPattern("[0-9a-f-]{36}")));
+        assertThat(output).doesNotContain("org=acme limit=none");
     }
 
     @Test

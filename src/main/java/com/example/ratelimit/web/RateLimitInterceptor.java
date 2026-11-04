@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -36,6 +37,9 @@ import tools.jackson.databind.json.JsonMapper;
 public class RateLimitInterceptor implements HandlerInterceptor {
 
     private static final Logger log = LoggerFactory.getLogger(RateLimitInterceptor.class);
+
+    /** Client-supplied request IDs must look like this, so they can't forge log fields. */
+    private static final Pattern SAFE_REQUEST_ID = Pattern.compile("[A-Za-z0-9._:-]{1,64}");
 
     /** limiter_full is logged at most this often; the rest are counted. */
     static final long LIMITER_FULL_LOG_INTERVAL_NANOS = 5_000_000_000L; // 5 s
@@ -154,7 +158,9 @@ public class RateLimitInterceptor implements HandlerInterceptor {
         return nanos <= 0 ? 0 : Math.max(1, (nanos + 999_999_999L) / 1_000_000_000L);
     }
 
+    /** The client's X-Request-Id if it is safe to log as-is, else a fresh UUID. */
     private static String requestId(HttpServletRequest request) {
-        return Optional.ofNullable(request.getHeader("X-Request-Id")).orElseGet(() -> UUID.randomUUID().toString());
+        String id = request.getHeader("X-Request-Id");
+        return id != null && SAFE_REQUEST_ID.matcher(id).matches() ? id : UUID.randomUUID().toString();
     }
 }
