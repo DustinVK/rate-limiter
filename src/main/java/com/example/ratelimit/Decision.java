@@ -8,9 +8,13 @@ public record Decision(Outcome outcome, List<BucketResult> results) {
 
     public enum Outcome {
         ALLOWED,
-        RATE_LIMITED,
-        /** The limiter is at max-buckets and could not free room for a new bucket. */
-        LIMITER_FULL
+        /**
+         * Allowed, but the limiter is at max-buckets and could not store some of
+         * the request's buckets. The buckets that exist were still checked and
+         * charged; the missing ones are not tracked.
+         */
+        ALLOWED_UNTRACKED,
+        RATE_LIMITED
     }
 
     /**
@@ -25,7 +29,7 @@ public record Decision(Outcome outcome, List<BucketResult> results) {
     }
 
     public boolean allowed() {
-        return outcome == Outcome.ALLOWED;
+        return outcome != Outcome.RATE_LIMITED;
     }
 
     /** Buckets that rejected the request. */

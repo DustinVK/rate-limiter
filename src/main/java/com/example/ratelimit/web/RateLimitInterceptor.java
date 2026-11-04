@@ -61,14 +61,13 @@ public class RateLimitInterceptor implements HandlerInterceptor {
         List<BucketSpec> specs = policy.bucketsFor(org, method, route);
         Decision decision = limiter.tryAcquire(specs);
 
-        if (decision.outcome() == Decision.Outcome.LIMITER_FULL) {
-            // Fail open: a full limiter must not turn into an outage for new
-            // customers. The request goes through unlimited and untracked, and
-            // this ERROR line is what pages someone. Orgs already tracked are
-            // still limited, and depleted buckets are never evicted.
+        if (decision.outcome() == Decision.Outcome.ALLOWED_UNTRACKED) {
+            // Fail open for buckets the limiter has no room for: a full limiter
+            // must not turn into an outage for new customers. Buckets that exist
+            // were still enforced, so an org with an empty total is still
+            // rejected. This ERROR line is what pages someone.
             String requestId = requestId(request);
             log.error("limiter_full org={} method={} route={} request_id={}", org, method, route, requestId);
-            return true;
         }
 
         if (decision.allowed()) {

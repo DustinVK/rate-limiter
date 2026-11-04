@@ -2,6 +2,7 @@ package com.example.ratelimit.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.example.ratelimit.FakeClock;
@@ -15,12 +16,14 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.web.servlet.MockMvc;
 
 /** A full limiter must not become an outage for orgs it can't track. */
 @SpringBootTest(properties = {"RATELIMIT_FILE=classpath:ratelimit-test.yml", "ratelimit.max-buckets=2"})
 @AutoConfigureMockMvc
 @ExtendWith(OutputCaptureExtension.class)
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 class LimiterFullTest {
 
     @TestConfiguration
@@ -52,5 +55,23 @@ class LimiterFullTest {
             mvc.perform(get("/items").header("X-Api-Key", "key-globex")).andExpect(status().isOk());
         }
         mvc.perform(get("/items").header("X-Api-Key", "key-globex")).andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    void aLimitedOrgCannotSlipThroughViaAnEndpointWithNoBucket() throws Exception {
+        // globex fills the cap (org-total + GET /items), then drains its total
+        // (burst 10): 5 reads empty GET /items, 5 unmatched paths hit only the total.
+        for (int i = 0; i < 5; i++) {
+            mvc.perform(get("/items").header("X-Api-Key", "key-globex")).andExpect(status().isOk());
+        }
+        for (int i = 0; i < 5; i++) {
+            mvc.perform(get("/no-such-route").header("X-Api-Key", "key-globex")).andExpect(status().isNotFound());
+        }
+
+        // GET /items/{id} has no bucket and there is no room for one, but the
+        // org total exists and is empty, so the request is still rejected.
+        mvc.perform(get("/items/1").header("X-Api-Key", "key-globex"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.binding_limit").value("org-total"));
     }
 }

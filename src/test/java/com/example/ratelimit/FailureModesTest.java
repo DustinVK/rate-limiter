@@ -64,7 +64,7 @@ class FailureModesTest {
         // At the cap with every bucket depleted: the new org can't be tracked
         // (the middleware lets it through and logs limiter_full), rather than
         // evicting a depleted bucket and handing that org a reset.
-        assertThat(limiter.tryAcquire(newcomer).outcome()).isEqualTo(Decision.Outcome.LIMITER_FULL);
+        assertThat(limiter.tryAcquire(newcomer).outcome()).isEqualTo(Decision.Outcome.ALLOWED_UNTRACKED);
         assertThat(limiter.tryAcquire(noisy).outcome()).as("still limited, not reset")
                 .isEqualTo(Decision.Outcome.RATE_LIMITED);
         assertThat(limiter.size()).isEqualTo(3);
@@ -73,6 +73,37 @@ class FailureModesTest {
         clock.advance(Duration.ofSeconds(2));
         assertThat(limiter.tryAcquire(newcomer).allowed()).isTrue();
         assertThat(limiter.size()).isEqualTo(1);
+    }
+
+    @Test
+    void atTheCapExistingBucketsAreStillEnforcedForNewEndpoints() {
+        TokenBucketLimiter limiter = new TokenBucketLimiter(clock, 1);
+        BucketSpec total = new BucketSpec("org:noisy:total", "org-total", new Limit(60, 2));
+        BucketSpec brandNewEndpoint = new BucketSpec("org:noisy:GET /reports", "endpoint-read", new Limit(60, 5));
+        limiter.tryAcquire(List.of(total));
+        limiter.tryAcquire(List.of(total));
+
+        // The cap is full (just the total) and the total is empty. Calling an
+        // endpoint with no bucket yet must not slip past the empty total.
+        Decision d = limiter.tryAcquire(List.of(total, brandNewEndpoint));
+        assertThat(d.outcome()).isEqualTo(Decision.Outcome.RATE_LIMITED);
+        assertThat(d.binding().spec().name()).isEqualTo("org-total");
+    }
+
+    @Test
+    void atTheCapARequestIsChargedToItsExistingBucketsAndTheRestGoUntracked() {
+        TokenBucketLimiter limiter = new TokenBucketLimiter(clock, 1);
+        BucketSpec total = new BucketSpec("org:noisy:total", "org-total", new Limit(60, 3));
+        BucketSpec brandNewEndpoint = new BucketSpec("org:noisy:GET /reports", "endpoint-read", new Limit(60, 5));
+        limiter.tryAcquire(List.of(total));
+
+        Decision d = limiter.tryAcquire(List.of(total, brandNewEndpoint));
+        assertThat(d.outcome()).isEqualTo(Decision.Outcome.ALLOWED_UNTRACKED);
+        assertThat(limiter.size()).as("no room was made, so nothing new is stored").isEqualTo(1);
+
+        // The total was still charged: 3 - 2 = 1 left, then empty.
+        assertThat(limiter.tryAcquire(List.of(total)).allowed()).isTrue();
+        assertThat(limiter.tryAcquire(List.of(total)).outcome()).isEqualTo(Decision.Outcome.RATE_LIMITED);
     }
 
     @Test
@@ -99,7 +130,7 @@ class FailureModesTest {
         Limit limit = new Limit(60, 10);
         long untracked = IntStream.range(0, 100_000)
                 .mapToObj(i -> limiter.tryAcquire(List.of(new BucketSpec("anon:" + i, "anon", limit))))
-                .filter(d -> d.outcome() == Decision.Outcome.LIMITER_FULL)
+                .filter(d -> d.outcome() == Decision.Outcome.ALLOWED_UNTRACKED)
                 .count();
         // Memory is bounded...
         assertThat(limiter.size()).isEqualTo(1_000);
