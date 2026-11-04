@@ -6,37 +6,26 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * In-memory token buckets for one process.
- *
- * <p>All state lives in this object's heap, so it is lost on restart and not
- * shared between replicas. See README, "Known failure modes".
- *
- * <p>Correctness rules:
+ * In-memory token buckets for one process: lost on restart, not shared between
+ * replicas (README, B1).
  * <ul>
- *   <li>A request passes only if every one of its buckets has a token. Tokens
- *       are taken from all of them or from none, so a rejected write never
- *       spends the org's total allowance, and rejected requests cost nothing.</li>
- *   <li>Refill is computed lazily from elapsed monotonic time; there are no
- *       timers.</li>
- *   <li>One lock guards check-and-take, insertion and eviction. The critical
- *       section is a few arithmetic and map operations, except sweeps, which
- *       are rate-limited to one per 100 ms. Next step: lock per org (all of a
- *       request's buckets belong to one org), so orgs never wait on each other.</li>
- *   <li>Only fully refilled buckets are ever evicted. A full bucket behaves
- *       exactly like a missing one, so dropping it changes nothing; dropping a
- *       depleted one would hand that org a fresh allowance.</li>
+ *   <li>Tokens are taken from all of a request's buckets or from none, so a
+ *       rejected request never spends any allowance.</li>
+ *   <li>Refill is computed lazily from monotonic time; there are no timers.</li>
+ *   <li>One lock guards everything; the work under it is a few map operations,
+ *       plus a sweep at most every 100 ms.</li>
+ *   <li>Only fully refilled buckets are evicted: a full bucket behaves exactly
+ *       like a missing one, while dropping a depleted one would reset that org.</li>
  * </ul>
  */
 public final class TokenBucketLimiter {
 
-    /** Sweep for fully refilled buckets after this many checks... */
-    static final int SWEEP_EVERY = 1024;
-
     /**
-     * ...but never more often than this. A sweep scans every bucket while
-     * holding the one lock, so under a flood of new keys at the cap, sweeping
-     * on every request would stall every org at once.
+     * Sweep for fully refilled buckets every SWEEP_EVERY checks, or when the cap
+     * is reached, but never more often than MIN_SWEEP_INTERVAL: a sweep scans
+     * every bucket under the lock, so sweeping per request would stall every org.
      */
+    static final int SWEEP_EVERY = 1024;
     static final long MIN_SWEEP_INTERVAL_NANOS = 100_000_000L; // 100 ms
 
     private static final class Bucket {
@@ -90,9 +79,8 @@ public final class TokenBucketLimiter {
 
         // Phase 2: take one token from every bucket, or from none. At the cap,
         // missing buckets are created in order (org total first) while room
-        // remains; the rest go untracked and are left out of the results. The
-        // buckets that exist are always enforced, so an org with an empty total
-        // can't slip through via an endpoint it hasn't called recently.
+        // remains; the rest go untracked and are left out of the results.
+        // Existing buckets were enforced in phase 1 either way.
         List<Decision.BucketResult> results = new ArrayList<>(specs.size());
         boolean untracked = false;
         for (int i = 0; i < specs.size(); i++) {
