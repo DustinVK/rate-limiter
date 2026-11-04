@@ -86,8 +86,11 @@ public class RateLimitInterceptor implements HandlerInterceptor {
         }
 
         if (decision.allowed()) {
-            decision.tightest().ifPresent(t -> response.setHeader("RateLimit", rateLimitHeader(t.spec().name(),
-                    (long) Math.floor(t.remaining()), seconds(t.nanosUntilFull()))));
+            // Shadow mode sends no header: clients must not slow down during a trial.
+            if (policy.enforcing()) {
+                decision.tightest().ifPresent(t -> response.setHeader("RateLimit", rateLimitHeader(t.spec().name(),
+                        (long) Math.floor(t.remaining()), seconds(t.nanosUntilFull()))));
+            }
             return true;
         }
 
