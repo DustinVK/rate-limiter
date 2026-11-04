@@ -99,7 +99,9 @@ public final class RateLimitPolicy {
         return READ_METHODS.contains(method.toUpperCase(Locale.ROOT));
     }
 
+    /** HEAD (and OPTIONS) are keyed as GET, so they share its read bucket. */
     static String endpoint(String method, String routeTemplate) {
-        return method.toUpperCase(Locale.ROOT) + " " + routeTemplate;
+        String m = isRead(method) ? "GET" : method.toUpperCase(Locale.ROOT);
+        return m + " " + routeTemplate;
     }
 }

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -143,6 +144,21 @@ class RateLimitMiddlewareTest {
         mvc.perform(as("key-globex", get("/items/6")))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(jsonPath("$.endpoint").value("GET /items/{id}"));
+    }
+
+    @Test
+    void headSharesTheGetBucket() throws Exception {
+        for (int i = 0; i < 2; i++) {
+            mvc.perform(as("key-globex", get("/items"))).andExpect(status().isOk());
+            mvc.perform(as("key-globex", head("/items"))).andExpect(status().isOk());
+        }
+        mvc.perform(as("key-globex", get("/items"))).andExpect(status().isOk());
+        // Read burst is 5, spent across GET and HEAD. (OPTIONS is answered by
+        // Spring's built-in handler, which has no route, so like a 404 it is
+        // charged to the org total only.)
+        mvc.perform(as("key-globex", head("/items")))
+                .andExpect(status().isTooManyRequests()) // HEAD has no body to check
+                .andExpect(header().string("RateLimit", startsWith("\"endpoint-read\";r=0;")));
     }
 
     @Test
