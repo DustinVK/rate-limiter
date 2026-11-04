@@ -22,45 +22,36 @@ public class RateLimitWebConfig implements WebMvcConfigurer {
     /** Paths that are never limited and need no API key. */
     private static final String[] EXCLUDED = {"/health", "/error"};
 
-    private final RateLimitPolicy policy;
-    private final TokenBucketLimiter limiter;
-    private final JsonMapper json;
-    private final NanoClock clock;
+    private final RateLimitInterceptor interceptor;
 
     public RateLimitWebConfig(RateLimitPolicy policy, TokenBucketLimiter limiter, JsonMapper json, NanoClock clock) {
-        this.policy = policy;
-        this.limiter = limiter;
-        this.json = json;
-        this.clock = clock;
+        this.interceptor = new RateLimitInterceptor(policy, limiter, json, clock);
     }
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        registry.addInterceptor(new ApiKeyInterceptor(policy, json)).excludePathPatterns(EXCLUDED).order(0);
-        registry.addInterceptor(new RateLimitInterceptor(policy, limiter, json, clock)).excludePathPatterns(EXCLUDED).order(1);
+        registry.addInterceptor(interceptor).excludePathPatterns(EXCLUDED);
     }
 
-    @Configuration
-    static class Beans {
+    // Static, so this class can take the beans in its constructor without a cycle.
 
-        @Bean
-        NanoClock nanoClock() {
-            return System::nanoTime;
-        }
+    @Bean
+    static NanoClock nanoClock() {
+        return System::nanoTime;
+    }
 
-        @Bean
-        RouteOverrideCheck routeOverrideCheck(RateLimitProperties props) {
-            return new RouteOverrideCheck(props);
-        }
+    @Bean
+    static RateLimitPolicy rateLimitPolicy(RateLimitProperties props) {
+        return new RateLimitPolicy(props);
+    }
 
-        @Bean
-        RateLimitPolicy rateLimitPolicy(RateLimitProperties props) {
-            return new RateLimitPolicy(props);
-        }
+    @Bean
+    static TokenBucketLimiter tokenBucketLimiter(NanoClock clock, RateLimitProperties props) {
+        return new TokenBucketLimiter(clock, props.maxBuckets());
+    }
 
-        @Bean
-        TokenBucketLimiter tokenBucketLimiter(NanoClock clock, RateLimitProperties props) {
-            return new TokenBucketLimiter(clock, props.maxBuckets());
-        }
+    @Bean
+    static RouteOverrideCheck routeOverrideCheck(RateLimitProperties props) {
+        return new RouteOverrideCheck(props);
     }
 }
