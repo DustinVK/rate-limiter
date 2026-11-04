@@ -82,9 +82,8 @@ public class RateLimitInterceptor implements HandlerInterceptor {
         }
 
         if (decision.allowed()) {
-            BucketResult tightest = decision.tightest();
-            response.setHeader("RateLimit", rateLimitHeader(tightest.spec().name(),
-                    (long) Math.floor(tightest.remaining()), seconds(tightest.nanosUntilFull())));
+            decision.tightest().ifPresent(t -> response.setHeader("RateLimit", rateLimitHeader(t.spec().name(),
+                    (long) Math.floor(t.remaining()), seconds(t.nanosUntilFull()))));
             return true;
         }
 

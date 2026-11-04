@@ -71,19 +71,10 @@ public final class TokenBucketLimiter {
 
     public synchronized Decision tryAcquire(List<BucketSpec> specs) {
         long now = clock.nanoTime();
-        if (++checksSinceSweep >= SWEEP_EVERY) {
+        long missing = specs.stream().filter(s -> !buckets.containsKey(s.key())).count();
+        if (++checksSinceSweep >= SWEEP_EVERY || buckets.size() + missing > maxBuckets) {
             sweepIfDue(now);
         }
-
-        if (countMissing(specs) > 0 && buckets.size() + countMissing(specs) > maxBuckets) {
-            sweepIfDue(now);
-        }
-        // At the cap, missing buckets are not created, but the request is still
-        // checked against, and charged to, the buckets that do exist. Otherwise
-        // an org with an empty total could slip through via any endpoint it
-        // hasn't called recently.
-        long missing = countMissing(specs);
-        boolean untracked = missing > 0 && buckets.size() + missing > maxBuckets;
 
         // Phase 1: evaluate every bucket without changing anything.
         // A missing bucket is full by definition, so it never rejects.
@@ -97,8 +88,13 @@ public final class TokenBucketLimiter {
             }
         }
 
-        // Phase 2: take one token from every bucket, or from none.
+        // Phase 2: take one token from every bucket, or from none. At the cap,
+        // missing buckets are created in order (org total first) while room
+        // remains; the rest go untracked and are left out of the results. The
+        // buckets that exist are always enforced, so an org with an empty total
+        // can't slip through via an endpoint it hasn't called recently.
         List<Decision.BucketResult> results = new ArrayList<>(specs.size());
+        boolean untracked = false;
         for (int i = 0; i < specs.size(); i++) {
             BucketSpec spec = specs.get(i);
             Limit limit = spec.limit();
@@ -109,8 +105,11 @@ public final class TokenBucketLimiter {
                 if (b != null) {
                     b.tokens = remaining;
                     b.updatedAt = now;
-                } else if (!untracked) {
+                } else if (buckets.size() < maxBuckets) {
                     buckets.put(spec.key(), new Bucket(limit, remaining, now));
+                } else {
+                    untracked = true;
+                    continue;
                 }
             }
             long untilToken = allowed ? 0 : limit.nanosUntilOneToken(available[i]);
@@ -120,10 +119,6 @@ public final class TokenBucketLimiter {
                 : untracked ? Decision.Outcome.ALLOWED_UNTRACKED
                 : Decision.Outcome.ALLOWED;
         return new Decision(outcome, results);
-    }
-
-    private long countMissing(List<BucketSpec> specs) {
-        return specs.stream().filter(s -> !buckets.containsKey(s.key())).count();
     }
 
     /** Drop buckets that have fully refilled. O(buckets) while holding the lock. */

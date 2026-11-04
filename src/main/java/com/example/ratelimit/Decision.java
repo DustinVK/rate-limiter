@@ -2,6 +2,7 @@ package com.example.ratelimit;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 
 /** The outcome of checking one request against all of its buckets. */
 public record Decision(Outcome outcome, List<BucketResult> results) {
@@ -11,7 +12,7 @@ public record Decision(Outcome outcome, List<BucketResult> results) {
         /**
          * Allowed, but the limiter is at max-buckets and could not store some of
          * the request's buckets. The buckets that exist were still checked and
-         * charged; the missing ones are not tracked.
+         * charged; the missing ones are not tracked and not in the results.
          */
         ALLOWED_UNTRACKED,
         RATE_LIMITED
@@ -46,8 +47,11 @@ public record Decision(Outcome outcome, List<BucketResult> results) {
         return exceeded().stream().max(Comparator.comparingLong(BucketResult::nanosUntilToken)).orElseThrow();
     }
 
-    /** The bucket with the fewest tokens left, reported in RateLimit headers on success. */
-    public BucketResult tightest() {
-        return results.stream().min(Comparator.comparingDouble(BucketResult::remaining)).orElseThrow();
+    /**
+     * The bucket with the fewest tokens left, reported in RateLimit headers on
+     * success. Empty when none of the request's buckets could be tracked.
+     */
+    public Optional<BucketResult> tightest() {
+        return results.stream().min(Comparator.comparingDouble(BucketResult::remaining));
     }
 }

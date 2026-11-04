@@ -107,6 +107,21 @@ class FailureModesTest {
     }
 
     @Test
+    void atTheCapMissingBucketsAreCreatedInOrderWhileRoomRemains() {
+        // Room for one bucket; every request needs two (org total + endpoint).
+        TokenBucketLimiter limiter = new TokenBucketLimiter(clock, 1);
+        BucketSpec total = new BucketSpec("org:new:total", "org-total", new Limit(60, 3));
+        BucketSpec endpoint = new BucketSpec("org:new:GET /items", "endpoint-read", new Limit(60, 5));
+
+        // The org total takes the one slot and is enforced; the endpoint goes untracked.
+        for (int i = 0; i < 3; i++) {
+            assertThat(limiter.tryAcquire(List.of(total, endpoint)).outcome()).isEqualTo(Decision.Outcome.ALLOWED_UNTRACKED);
+        }
+        assertThat(limiter.size()).isEqualTo(1);
+        assertThat(limiter.tryAcquire(List.of(total, endpoint)).outcome()).isEqualTo(Decision.Outcome.RATE_LIMITED);
+    }
+
+    @Test
     void aKeyFloodAtTheCapSweepsAtMostOncePer100ms() {
         TokenBucketLimiter limiter = new TokenBucketLimiter(clock, 100);
         Limit limit = new Limit(60, 10);

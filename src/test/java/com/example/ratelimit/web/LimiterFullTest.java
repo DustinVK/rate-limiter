@@ -65,8 +65,10 @@ class LimiterFullTest {
 
     @Test
     void limiterFullReportsHowManyLinesItSkipped(CapturedOutput output) throws Exception {
-        // globex fills the cap and drains its total (burst 10) so that 5 s of
-        // refill can't make it full: a full bucket would be swept, freeing room.
+        // globex fills the cap and drains its total (burst 10), so 5 s of refill
+        // can't make the total full and it is never swept. Its GET /items bucket
+        // does refill and is swept, freeing one slot: acme's total takes it after
+        // the advance, and acme's endpoint bucket still goes untracked.
         for (int i = 0; i < 5; i++) {
             mvc.perform(get("/items").header("X-Api-Key", "key-globex")).andExpect(status().isOk());
         }
