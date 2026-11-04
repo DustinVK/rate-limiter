@@ -1,0 +1,53 @@
+# Rate limits. Edit this file and restart the service; no code change needed.
+# A restart resets every counter (see README, "Known failure modes").
+# Point the service at a different file with RATELIMIT_FILE=/path/to/file.yml.
+#
+# Units: per-minute is the sustained refill rate; burst is how many requests
+# can arrive back-to-back after a quiet period (the bucket size).
+ratelimit:
+  # false = shadow mode: log every request that WOULD be rejected, block nothing.
+  # Turn a new or changed limit on in shadow mode first and watch the logs.
+  enforce: true
+
+  # Hard cap on buckets held in memory. At the cap, buckets that have fully
+  # refilled are dropped (free); depleted ones are never dropped. If no room
+  # can be made, requests that need a NEW bucket get 503 (see README).
+  max-buckets: 10000
+
+  default-tier: standard
+
+  # Every request is checked against two buckets, and must pass both:
+  #   total - all of this org's requests, across every endpoint
+  #   read / write - this org's requests to ONE endpoint (method + route template)
+  # GET/HEAD/OPTIONS are reads; everything else is a write.
+  tiers:
+    standard:
+      total: { per-minute: 100, burst: 20 }
+      read:  { per-minute: 100, burst: 20 }
+      write: { per-minute: 20,  burst: 5 }
+    premium:
+      total: { per-minute: 500, burst: 100 }
+      read:  { per-minute: 500, burst: 100 }
+      write: { per-minute: 100, burst: 20 }
+
+  # Per-org settings. Any of total/read/write here replaces the tier's value.
+  orgs:
+    acme:   { tier: premium }
+    globex: { tier: standard }
+    initech:
+      tier: standard
+      write: { per-minute: 60, burst: 10 }
+
+  # Endpoint-specific limits, for every org, replacing the read/write default
+  # for that one endpoint. Path is the route TEMPLATE as declared in the code.
+  route-overrides:
+    - { method: POST, path: /exports, per-minute: 5, burst: 1 }
+
+  # STAND-IN FOR AUTH. Real API keys never live in a config file; in production
+  # the org comes from the authentication layer. Several keys can share an org,
+  # and they share its limits.
+  api-keys:
+    key-acme-1: acme
+    key-acme-2: acme
+    key-globex: globex
+    key-initech: initech

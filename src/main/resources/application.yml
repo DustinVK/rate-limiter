@@ -1,0 +1,7 @@
+spring:
+  application:
+    name: rate-limiter
+  config:
+    # Not optional on purpose: no limits file means the service refuses to start.
+    # RATELIMIT_FILE takes a full location, e.g. file:/etc/api/ratelimit.yml.
+    import: ${RATELIMIT_FILE:file:./ratelimit.yml}

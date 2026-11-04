@@ -1,0 +1,23 @@
+# Small limits so tests can exhaust buckets in a few requests.
+ratelimit:
+  enforce: true
+  max-buckets: 100
+  default-tier: standard
+  tiers:
+    standard:
+      total: { per-minute: 60, burst: 10 }
+      read:  { per-minute: 60, burst: 5 }
+      write: { per-minute: 30, burst: 2 }
+    premium:
+      total: { per-minute: 600, burst: 100 }
+      read:  { per-minute: 600, burst: 50 }
+      write: { per-minute: 300, burst: 20 }
+  orgs:
+    acme:   { tier: premium }
+    globex: { tier: standard }
+  route-overrides:
+    - { method: POST, path: /exports, per-minute: 6, burst: 1 }
+  api-keys:
+    key-acme-1: acme
+    key-acme-2: acme
+    key-globex: globex
