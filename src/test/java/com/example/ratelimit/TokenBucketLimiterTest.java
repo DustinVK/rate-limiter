@@ -3,12 +3,13 @@ package com.example.ratelimit;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 class TokenBucketLimiterTest {
@@ -92,21 +93,24 @@ class TokenBucketLimiterTest {
     @Test
     void concurrentRequestsNeverOverspend() throws Exception {
         List<BucketSpec> specs = List.of(bucket("a", 60, 10));
-        AtomicInteger allowed = new AtomicInteger();
         CountDownLatch start = new CountDownLatch(1);
         ExecutorService pool = Executors.newFixedThreadPool(32);
+        List<Future<Decision.Outcome>> outcomes = new ArrayList<>();
         for (int i = 0; i < 500; i++) {
-            pool.submit(() -> {
+            outcomes.add(pool.submit(() -> {
                 start.await();
-                if (limiter.tryAcquire(specs).allowed()) {
-                    allowed.incrementAndGet();
-                }
-                return null;
-            });
+                return limiter.tryAcquire(specs).outcome();
+            }));
         }
         start.countDown();
+        int allowed = 0;
+        for (Future<Decision.Outcome> f : outcomes) {
+            // get() rethrows anything a worker threw, so errors can't hide.
+            if (f.get(10, TimeUnit.SECONDS) == Decision.Outcome.ALLOWED) {
+                allowed++;
+            }
+        }
         pool.shutdown();
-        assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
-        assertThat(allowed.get()).isEqualTo(10); // clock is frozen: burst only
+        assertThat(allowed).isEqualTo(10); // clock is frozen: burst only; the other 490 are rate-limited
     }
 }

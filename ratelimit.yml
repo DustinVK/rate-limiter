@@ -38,7 +38,7 @@ ratelimit:
     globex: { tier: standard }
     initech:
       tier: standard
-      write: { per-minute: 60, burst: 10 }
+      write: { per-minute: 40, burst: 10 }
 
   # Endpoint-specific limits, for every org, replacing the read/write default
   # for that one endpoint. Path is the route TEMPLATE as declared in the code.
