@@ -18,7 +18,7 @@ import org.springframework.validation.annotation.Validated;
  * are checked in {@link RateLimitPolicy}.
  */
 @Validated
-@ConfigurationProperties("ratelimit")
+@ConfigurationProperties(prefix = "ratelimit", ignoreUnknownFields = false)
 public record RateLimitProperties(
         @DefaultValue("true") boolean enforce,
         @DefaultValue("100000") @Positive int maxBuckets,

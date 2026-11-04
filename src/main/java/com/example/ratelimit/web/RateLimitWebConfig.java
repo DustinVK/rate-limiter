@@ -49,6 +49,11 @@ public class RateLimitWebConfig implements WebMvcConfigurer {
         }
 
         @Bean
+        RouteOverrideCheck routeOverrideCheck(RateLimitProperties props) {
+            return new RouteOverrideCheck(props);
+        }
+
+        @Bean
         RateLimitPolicy rateLimitPolicy(RateLimitProperties props) {
             return new RateLimitPolicy(props);
         }
