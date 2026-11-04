@@ -14,14 +14,16 @@ trap cleanup EXIT
 
 start() { # port
   java -jar "$JAR" --server.port="$1" >"target/demo-$1.log" 2>&1 &
-  PIDS+=($!)
   local pid=$!
+  PIDS+=("$pid")
   until curl -sf "localhost:$1/health" >/dev/null; do
     kill -0 "$pid" 2>/dev/null || { echo "server on :$1 failed to start, see target/demo-$1.log"; exit 1; }
     sleep 0.2
   done
 }
-stop_all() { cleanup; PIDS=(); sleep 1; }
+# Wait for the processes to exit, so a restarted server's health check can't
+# be answered by the old one while it is still shutting down.
+stop_all() { cleanup; for p in "${PIDS[@]:-}"; do wait "$p" 2>/dev/null || true; done; PIDS=(); }
 post() { # port -> status code
   curl -s -o /dev/null -w '%{http_code}' -X POST -H 'X-Api-Key: key-globex' "localhost:$1/items"
 }
