@@ -6,6 +6,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.util.Map;
 import java.util.Optional;
 import org.springframework.http.MediaType;
+import org.springframework.web.cors.CorsUtils;
 import org.springframework.web.servlet.HandlerInterceptor;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -32,6 +33,11 @@ public class ApiKeyInterceptor implements HandlerInterceptor {
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
+        // Browsers send CORS preflights without credentials, so they can never
+        // carry the key. Spring answers them itself; no controller runs.
+        if (CorsUtils.isPreFlightRequest(request)) {
+            return true;
+        }
         Optional<String> org = policy.orgForApiKey(request.getHeader(API_KEY_HEADER));
         if (org.isEmpty()) {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);

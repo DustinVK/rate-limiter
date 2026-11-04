@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -58,6 +59,18 @@ class RateLimitMiddlewareTest {
     void missingOrUnknownKeyIs401() throws Exception {
         mvc.perform(get("/items")).andExpect(status().isUnauthorized());
         mvc.perform(as("nope", get("/items"))).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void corsPreflightIsNeverRejectedForMissingKey() throws Exception {
+        for (int i = 0; i < 20; i++) {
+            mvc.perform(options("/items")
+                            .header("Origin", "https://app.example.com")
+                            .header("Access-Control-Request-Method", "POST"))
+                    // This demo has no CORS config, so Spring itself refuses the
+                    // preflight (403). The point: auth and the limiter stay out of it.
+                    .andExpect(result -> assertThat(result.getResponse().getStatus()).isNotIn(401, 429));
+        }
     }
 
     @Test

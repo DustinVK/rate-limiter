@@ -55,9 +55,11 @@ class TokenBucketLimiterTest {
         assertThat(rejected.allowed()).isFalse();
         assertThat(rejected.exceeded()).extracting(r -> r.spec().name()).containsExactly("write");
 
-        // ...and the total bucket still has 9, not 8.
+        // ...and it took nothing from total, which still holds 9 (10 minus the
+        // first request). This next request spends one, leaving 8; had the
+        // rejected request been charged too, 7 would be left.
         Decision read = limiter.tryAcquire(List.of(total));
-        assertThat(read.results().get(0).remaining()).isEqualTo(8.0); // 9 before this request
+        assertThat(read.results().get(0).remaining()).isEqualTo(8.0);
     }
 
     @Test

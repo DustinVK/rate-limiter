@@ -16,6 +16,7 @@ import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
+import org.springframework.web.cors.CorsUtils;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.HandlerMapping;
@@ -46,6 +47,9 @@ public class RateLimitInterceptor implements HandlerInterceptor {
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
+        if (CorsUtils.isPreFlightRequest(request)) {
+            return true; // no org to charge; see ApiKeyInterceptor
+        }
         String org = (String) request.getAttribute(ApiKeyInterceptor.ORG_ATTRIBUTE);
         String method = request.getMethod();
         // Matched route template, e.g. /items/{id}. Unmatched requests (404s)
