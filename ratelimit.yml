@@ -1,38 +1,28 @@
-# Rate limits. Edit this file and restart the service; no code change needed.
-# A restart resets every counter (see README, "Known failure modes").
-# Point the service at a different file with RATELIMIT_FILE=/path/to/file.yml.
-#
-# Units: per-minute is the sustained refill rate; burst is how many requests
-# can arrive back-to-back after a quiet period (the bucket size).
+# Edit and restart to apply (restart resets all counters). Override path with RATELIMIT_FILE.
+# per-minute = sustained refill rate; burst = bucket size (back-to-back requests after idle).
 ratelimit:
-  # false = shadow mode: log every request that WOULD be rejected, block nothing.
-  # Turn a new or changed limit on in shadow mode first and watch the logs.
+  # false = shadow mode: log would-be rejections, block nothing. Try new limits this way first.
   enforce: true
 
-  # Hard cap on buckets held in memory, about 160 bytes each (measured), so
-  # 100k is roughly 16 MB. Live buckets = active orgs x endpoints each touched
-  # in the last refill period. At the cap, fully refilled buckets are dropped
-  # (free); depleted ones never are. If no room can be made, requests that need
-  # a NEW bucket go through unlimited and a limiter_full ERROR is logged.
+  # ~160 bytes/bucket, so 100k ≈ 16 MB. At the cap, full buckets are evicted; if none,
+  # requests needing a new bucket pass unlimited and log limiter_full.
   max-buckets: 100000
 
   default-tier: standard
 
-  # Every request is checked against two buckets, and must pass both:
-  #   total - all of this org's requests, across every endpoint
-  #   read / write - this org's requests to ONE endpoint (method + route template)
+  # Each request must pass both its org's total bucket and its per-endpoint read/write bucket.
   # GET/HEAD/OPTIONS are reads; everything else is a write.
   tiers:
     standard:
       total: { per-minute: 100, burst: 20 }
-      read:  { per-minute: 60,  burst: 15 }   # per endpoint, so one hot read can't use the whole total
+      read:  { per-minute: 60,  burst: 15 }
       write: { per-minute: 20,  burst: 5 }
     premium:
       total: { per-minute: 500, burst: 100 }
       read:  { per-minute: 300, burst: 75 }
       write: { per-minute: 100, burst: 20 }
 
-  # Per-org settings. Any of total/read/write here replaces the tier's value.
+  # total/read/write set here replace the tier's value.
   orgs:
     acme:   { tier: premium }
     globex: { tier: standard }
@@ -40,14 +30,11 @@ ratelimit:
       tier: standard
       write: { per-minute: 40, burst: 10 }
 
-  # Endpoint-specific limits, for every org, replacing the read/write default
-  # for that one endpoint. Path is the route TEMPLATE as declared in the code.
+  # Per-endpoint limit for all orgs, replacing read/write. Path is the route template.
   route-overrides:
     - { method: POST, path: /exports, per-minute: 5, burst: 1 }
 
-  # STAND-IN FOR AUTH. Real API keys never live in a config file; in production
-  # the org comes from the authentication layer. Several keys can share an org,
-  # and they share its limits.
+  # Stand-in for auth; real keys come from the auth layer. Keys sharing an org share its limits.
   api-keys:
     key-acme-1: acme
     key-acme-2: acme
