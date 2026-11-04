@@ -62,7 +62,8 @@ public class RateLimitInterceptor implements HandlerInterceptor {
             // customers. The request goes through unlimited and untracked, and
             // this ERROR line is what pages someone. Orgs already tracked are
             // still limited, and depleted buckets are never evicted.
-            log.error("limiter_full org={} method={} route={}", org, method, route);
+            String requestId = requestId(request);
+            log.error("limiter_full org={} method={} route={} request_id={}", org, method, route, requestId);
             return true;
         }
 
@@ -76,8 +77,10 @@ public class RateLimitInterceptor implements HandlerInterceptor {
         BucketResult binding = decision.binding();
         long retryAfter = seconds(binding.nanosUntilToken());
         OrgLimits limits = policy.limitsFor(org);
-        log.warn("rate_limited org={} tier={} limit={} method={} route={} retry_after_s={} enforce={}",
-                org, limits.tier(), binding.spec().name(), method, route, retryAfter, policy.enforcing());
+        // Same ID in the log line and in the 429 body, so support can find one from the other.
+        String requestId = requestId(request);
+        log.warn("rate_limited org={} tier={} limit={} method={} route={} retry_after_s={} enforce={} request_id={}",
+                org, limits.tier(), binding.spec().name(), method, route, retryAfter, policy.enforcing(), requestId);
         if (!policy.enforcing()) {
             return true; // shadow mode: logged above, request goes through
         }
@@ -93,7 +96,7 @@ public class RateLimitInterceptor implements HandlerInterceptor {
         body.put("limit", Map.of("per_minute", binding.spec().limit().perMinute(), "burst", binding.spec().limit().burst()));
         body.put("endpoint", method + " " + Optional.ofNullable(route).orElse("(unmatched)"));
         body.put("retry_after_seconds", retryAfter);
-        body.put("request_id", requestId(request));
+        body.put("request_id", requestId);
         response.setHeader("RateLimit", rateLimitHeader(binding.spec().name(), 0, retryAfter));
         return reject(response, 429, retryAfter, body);
     }

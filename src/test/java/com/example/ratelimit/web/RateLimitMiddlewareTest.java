@@ -1,5 +1,6 @@
 package com.example.ratelimit.web;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -11,9 +12,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.example.ratelimit.FakeClock;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
@@ -28,6 +32,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 @SpringBootTest(properties = "RATELIMIT_FILE=classpath:ratelimit-test.yml")
 @AutoConfigureMockMvc
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
+@ExtendWith(OutputCaptureExtension.class)
 class RateLimitMiddlewareTest {
 
     @TestConfiguration
@@ -70,7 +75,7 @@ class RateLimitMiddlewareTest {
     }
 
     @Test
-    void writesHitTheStricterWriteLimitWithAFull429() throws Exception {
+    void writesHitTheStricterWriteLimitWithAFull429(CapturedOutput output) throws Exception {
         mvc.perform(as("key-globex", post("/items"))).andExpect(status().isCreated());
         mvc.perform(as("key-globex", post("/items"))).andExpect(status().isCreated());
         mvc.perform(as("key-globex", post("/items")).header("X-Request-Id", "req-123"))
@@ -88,6 +93,8 @@ class RateLimitMiddlewareTest {
                 .andExpect(jsonPath("$.endpoint").value("POST /items"))
                 .andExpect(jsonPath("$.retry_after_seconds").value(2))
                 .andExpect(jsonPath("$.request_id").value("req-123"));
+        // Support can find the log line from the ID the customer was given.
+        assertThat(output).contains("rate_limited org=globex").contains("request_id=req-123");
     }
 
     @Test

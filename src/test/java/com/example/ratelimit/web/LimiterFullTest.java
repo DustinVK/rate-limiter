@@ -45,7 +45,7 @@ class LimiterFullTest {
         for (int i = 0; i < 200; i++) {
             mvc.perform(get("/items").header("X-Api-Key", "key-acme-1")).andExpect(status().isOk());
         }
-        assertThat(output).contains("limiter_full org=acme method=GET route=/items");
+        assertThat(output).contains("limiter_full org=acme method=GET route=/items request_id=");
 
         // globex is still tracked and still limited (standard read burst is 5).
         for (int i = 0; i < 4; i++) {
