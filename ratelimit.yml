@@ -25,11 +25,11 @@ ratelimit:
   tiers:
     standard:
       total: { per-minute: 100, burst: 20 }
-      read:  { per-minute: 100, burst: 20 }
+      read:  { per-minute: 60,  burst: 15 }   # per endpoint, so one hot read can't use the whole total
       write: { per-minute: 20,  burst: 5 }
     premium:
       total: { per-minute: 500, burst: 100 }
-      read:  { per-minute: 500, burst: 100 }
+      read:  { per-minute: 300, burst: 75 }
       write: { per-minute: 100, burst: 20 }
 
   # Per-org settings. Any of total/read/write here replaces the tier's value.
