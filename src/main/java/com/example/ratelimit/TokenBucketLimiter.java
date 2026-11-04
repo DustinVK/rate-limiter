@@ -19,7 +19,9 @@ import java.util.Map;
  *   <li>Refill is computed lazily from elapsed monotonic time; there are no
  *       timers.</li>
  *   <li>One lock guards check-and-take, insertion and eviction. The critical
- *       section is a few arithmetic and map operations.</li>
+ *       section is a few arithmetic and map operations, except sweeps, which
+ *       are rate-limited to one per 100 ms. Next step: lock per org (all of a
+ *       request's buckets belong to one org), so orgs never wait on each other.</li>
  *   <li>Only fully refilled buckets are ever evicted. A full bucket behaves
  *       exactly like a missing one, so dropping it changes nothing; dropping a
  *       depleted one would hand that org a fresh allowance.</li>
@@ -27,8 +29,15 @@ import java.util.Map;
  */
 public final class TokenBucketLimiter {
 
-    /** Sweep for fully refilled buckets after this many checks. */
+    /** Sweep for fully refilled buckets after this many checks... */
     static final int SWEEP_EVERY = 1024;
+
+    /**
+     * ...but never more often than this. A sweep scans every bucket while
+     * holding the one lock, so under a flood of new keys at the cap, sweeping
+     * on every request would stall every org at once.
+     */
+    static final long MIN_SWEEP_INTERVAL_NANOS = 100_000_000L; // 100 ms
 
     private static final class Bucket {
         final Limit limit;
@@ -51,21 +60,24 @@ public final class TokenBucketLimiter {
     private final NanoClock clock;
     private final int maxBuckets;
     private int checksSinceSweep;
+    private long lastSweepAt;
+    private long sweeps;
 
     public TokenBucketLimiter(NanoClock clock, int maxBuckets) {
         this.clock = clock;
         this.maxBuckets = maxBuckets;
+        this.lastSweepAt = clock.nanoTime() - MIN_SWEEP_INTERVAL_NANOS; // first sweep may run at once
     }
 
     public synchronized Decision tryAcquire(List<BucketSpec> specs) {
         long now = clock.nanoTime();
         if (++checksSinceSweep >= SWEEP_EVERY) {
-            sweep(now);
+            sweepIfDue(now);
         }
 
         long newKeys = specs.stream().filter(s -> !buckets.containsKey(s.key())).count();
         if (newKeys > 0 && buckets.size() + newKeys > maxBuckets) {
-            sweep(now);
+            sweepIfDue(now);
             if (buckets.size() + newKeys > maxBuckets) {
                 return new Decision(Decision.Outcome.LIMITER_FULL, List.of());
             }
@@ -105,12 +117,21 @@ public final class TokenBucketLimiter {
     }
 
     /** Drop buckets that have fully refilled. O(buckets) while holding the lock. */
-    private void sweep(long now) {
+    private void sweepIfDue(long now) {
+        if (now - lastSweepAt < MIN_SWEEP_INTERVAL_NANOS) {
+            return;
+        }
         checksSinceSweep = 0;
+        lastSweepAt = now;
+        sweeps++;
         buckets.values().removeIf(b -> b.tokensAt(now) >= b.limit.burst());
     }
 
     public synchronized int size() {
         return buckets.size();
+    }
+
+    synchronized long sweeps() {
+        return sweeps;
     }
 }

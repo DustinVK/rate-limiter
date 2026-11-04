@@ -76,6 +76,24 @@ class FailureModesTest {
     }
 
     @Test
+    void aKeyFloodAtTheCapSweepsAtMostOncePer100ms() {
+        TokenBucketLimiter limiter = new TokenBucketLimiter(clock, 100);
+        Limit limit = new Limit(60, 10);
+        for (int i = 0; i < 100; i++) {
+            limiter.tryAcquire(List.of(new BucketSpec("org:" + i, "org-total", limit)));
+        }
+        long before = limiter.sweeps();
+
+        // 10,000 new keys inside one second of fake time: without the
+        // throttle, each would scan all 100 buckets under the lock.
+        for (int i = 0; i < 10_000; i++) {
+            limiter.tryAcquire(List.of(new BucketSpec("flood:" + i, "org-total", limit)));
+            clock.advance(Duration.ofNanos(100_000)); // 0.1 ms
+        }
+        assertThat(limiter.sweeps() - before).isBetween(9L, 11L); // ~1s / 100ms
+    }
+
+    @Test
     void KNOWN_LIMITATION_aKeyFloodFillsTheCapAndNewKeysGoUntracked() {
         TokenBucketLimiter limiter = new TokenBucketLimiter(clock, 1_000);
         Limit limit = new Limit(60, 10);
